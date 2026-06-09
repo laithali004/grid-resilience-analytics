@@ -21,6 +21,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     ConfusionMatrixDisplay,
+    average_precision_score,
     classification_report,
     confusion_matrix,
     f1_score,
@@ -60,6 +61,7 @@ feature_cols = [
     "total_customers_out",
 ]
 target_col = "next_day_major_outage"
+thresholds = [0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 0.95]
 
 features_pdf = (
     spark.read.table(feature_table)
@@ -115,7 +117,38 @@ candidate_models = {
     ),
 }
 
-best = {"name": None, "roc_auc": -1, "run_id": None, "model": None}
+def build_threshold_metrics(y_true, y_prob, threshold_values):
+    rows = []
+
+    for threshold in threshold_values:
+        y_pred_at_threshold = (y_prob >= threshold).astype(int)
+        true_positives = int(((y_pred_at_threshold == 1) & (y_true == 1)).sum())
+        false_positives = int(((y_pred_at_threshold == 1) & (y_true == 0)).sum())
+
+        rows.append(
+            {
+                "threshold": threshold,
+                "precision": precision_score(y_true, y_pred_at_threshold, zero_division=0),
+                "recall": recall_score(y_true, y_pred_at_threshold, zero_division=0),
+                "f1": f1_score(y_true, y_pred_at_threshold, zero_division=0),
+                "flagged_count": int(y_pred_at_threshold.sum()),
+                "true_positives": true_positives,
+                "false_positives": false_positives,
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+best = {
+    "name": None,
+    "roc_auc": -1,
+    "average_precision": -1,
+    "best_threshold_f1": -1,
+    "selected_threshold": None,
+    "run_id": None,
+    "model": None,
+}
 
 # COMMAND ----------
 
@@ -127,17 +160,32 @@ for model_name, model in candidate_models.items():
         y_prob = model.predict_proba(X_test)[:, 1]
 
         roc_auc = roc_auc_score(y_test, y_prob)
+        average_precision = average_precision_score(y_test, y_prob)
         f1 = f1_score(y_test, y_pred, zero_division=0)
         precision = precision_score(y_test, y_pred, zero_division=0)
         recall = recall_score(y_test, y_pred, zero_division=0)
+        threshold_df = build_threshold_metrics(y_test.to_numpy(), y_prob, thresholds)
+        best_threshold = threshold_df.sort_values(
+            ["f1", "precision", "recall"],
+            ascending=False,
+        ).iloc[0]
 
         mlflow.log_param("model_name", model_name)
         mlflow.log_param("prediction_target", target_col)
         mlflow.log_param("feature_cols", ",".join(feature_cols))
+        mlflow.log_param("selected_threshold", best_threshold["threshold"])
         mlflow.log_metric("roc_auc", roc_auc)
+        mlflow.log_metric("average_precision", average_precision)
         mlflow.log_metric("f1", f1)
         mlflow.log_metric("precision", precision)
         mlflow.log_metric("recall", recall)
+        mlflow.log_metric("best_threshold_f1", best_threshold["f1"])
+        mlflow.log_metric("best_threshold_precision", best_threshold["precision"])
+        mlflow.log_metric("best_threshold_recall", best_threshold["recall"])
+
+        threshold_artifact = f"threshold_metrics_{model_name}.csv"
+        threshold_df.to_csv(threshold_artifact, index=False)
+        mlflow.log_artifact(threshold_artifact)
 
         input_example = X_train.head(5)
         signature = infer_signature(
@@ -155,17 +203,26 @@ for model_name, model in candidate_models.items():
             model_name,
             {
                 "roc_auc": roc_auc,
+                "average_precision": average_precision,
                 "f1": f1,
                 "precision": precision,
                 "recall": recall,
+                "best_threshold": best_threshold["threshold"],
+                "best_threshold_f1": best_threshold["f1"],
+                "best_threshold_precision": best_threshold["precision"],
+                "best_threshold_recall": best_threshold["recall"],
             },
         )
+        display(threshold_df)
 
-        if roc_auc > best["roc_auc"]:
+        if best_threshold["f1"] > best["best_threshold_f1"]:
             best.update(
                 {
                     "name": model_name,
                     "roc_auc": roc_auc,
+                    "average_precision": average_precision,
+                    "best_threshold_f1": best_threshold["f1"],
+                    "selected_threshold": best_threshold["threshold"],
                     "run_id": run.info.run_id,
                     "model": model,
                     "y_pred": y_pred,
@@ -201,7 +258,10 @@ plt.show()
 with mlflow.start_run(run_name="outage_best_model_summary"):
     mlflow.log_param("best_model_name", best["name"])
     mlflow.log_param("best_model_run_id", best["run_id"])
+    mlflow.log_param("selected_threshold", best["selected_threshold"])
     mlflow.log_metric("best_roc_auc", best["roc_auc"])
+    mlflow.log_metric("best_average_precision", best["average_precision"])
+    mlflow.log_metric("best_threshold_f1", best["best_threshold_f1"])
     mlflow.log_artifact("confusion_matrix.png")
 
 model_uri = f"runs:/{best['run_id']}/model"
@@ -209,6 +269,7 @@ model_uri = f"runs:/{best['run_id']}/model"
 print(f"Best model: {best['name']}")
 print(f"Best model run ID: {best['run_id']}")
 print(f"Best model URI: {model_uri}")
+print(f"Selected review threshold: {best['selected_threshold']}")
 
 print("\nManual Unity Catalog registration steps:")
 print("1. Open the MLflow run linked above.")
