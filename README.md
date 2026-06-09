@@ -176,11 +176,11 @@ The project separates feature engineering from risk scoring intentionally. The f
 
 ---
 
-## Model Performance Analysis
+## Model Training and Evaluation
 
 The project includes a model evaluation notebook that trains and compares baseline classifiers.
 
-**Notebook**: `explorations/Outage Model Performance Analysis.py`
+**Notebook**: `ml/Train and Evaluate Outage Risk Model.py`
 
 **Tracked with MLflow**:
 
@@ -260,7 +260,7 @@ The dashboard is designed to show:
 5. State-level outage summaries
 6. County-level risk ranking table
 
-Dashboard placeholder files are included in `Dashboard/` and `_dashboards/`.
+The dashboard will be created in Databricks after the gold tables and model scores are finalized.
 
 ---
 
@@ -274,17 +274,11 @@ grid-resilience-analytics/
 │   ├── gold_outage_features.py
 │   ├── gold_outage_risk_scores.py
 │   └── gold_outage_aggregations.sql
-├── explorations/
-│   └── Outage Model Performance Analysis.py
-├── Dashboard/
-│   └── outage_risk_dashboard.lvdash.json
-├── _dashboards/
-│   └── outage_risk_dashboard.json
+├── ml/
+│   └── Train and Evaluate Outage Risk Model.py
 ├── utilities/
 │   └── Run me first.py
-├── docs/
-│   ├── data_dictionary.md
-│   └── project_plan.md
+├── requirements.txt
 └── README.md
 ```
 

@@ -9,7 +9,7 @@
 # MAGIC ## Expected Output
 # MAGIC Delta streaming table: `gold_county_risk_scores`
 # MAGIC
-# MAGIC Run `explorations/Outage Model Performance Analysis.py` first to train and
+# MAGIC Run `ml/Train and Evaluate Outage Risk Model.py` first to train and
 # MAGIC register a model, then set the `outage.model_uri` pipeline configuration.
 
 # COMMAND ----------

@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Outage Model Performance Analysis
+# MAGIC # Outage Model Training and Evaluation
 # MAGIC
 # MAGIC ## Purpose
 # MAGIC Train and evaluate baseline outage risk classifiers using the gold feature table.
