@@ -26,10 +26,10 @@ dp.create_streaming_table(
 # COMMAND ----------
 
 
+@dp.append_flow(target="outage_county_day_features")
 @dp.expect_or_drop("valid_feature_state", "state IS NOT NULL")
 @dp.expect_or_drop("valid_feature_county", "county IS NOT NULL")
 @dp.expect_or_drop("valid_feature_fips", "fips_code IS NOT NULL")
-@dp.append_flow(target="outage_county_day_features")
 def outage_county_day_features_flow():
     df = spark.readStream.table("outages_silver")
 

@@ -24,11 +24,11 @@ dp.create_streaming_table(
 # COMMAND ----------
 
 
+@dp.append_flow(target="outages_silver")
 @dp.expect_or_drop("valid_state", "state IS NOT NULL")
 @dp.expect_or_drop("valid_county", "county IS NOT NULL")
 @dp.expect_or_drop("valid_event_date", "event_date IS NOT NULL")
 @dp.expect("non_negative_customers_out", "customers_out >= 0 OR customers_out IS NULL")
-@dp.append_flow(target="outages_silver")
 def outages_silver_flow():
     df = spark.readStream.table("outages_bronze")
 
