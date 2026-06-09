@@ -34,7 +34,7 @@ dp.create_streaming_table(
 # COMMAND ----------
 
 
-@dp.append_flow(target="outage_county_risk_scores")
+@dp.append_flow(target="outage_county_risk_scores", name="outage_county_risk_scores_flow")
 def outage_county_risk_scores_flow():
     features = spark.readStream.table("outage_county_day_features")
 

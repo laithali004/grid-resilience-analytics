@@ -26,7 +26,7 @@ dp.create_streaming_table(
 # COMMAND ----------
 
 
-@dp.append_flow(target="outage_county_day_features")
+@dp.append_flow(target="outage_county_day_features", name="outage_county_day_features_flow")
 @dp.expect_or_drop("valid_feature_state", "state IS NOT NULL")
 @dp.expect_or_drop("valid_feature_county", "county IS NOT NULL")
 @dp.expect_or_drop("valid_feature_fips", "fips_code IS NOT NULL")

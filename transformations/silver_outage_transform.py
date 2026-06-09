@@ -24,7 +24,7 @@ dp.create_streaming_table(
 # COMMAND ----------
 
 
-@dp.append_flow(target="outages_silver")
+@dp.append_flow(target="outages_silver", name="outages_silver_flow")
 @dp.expect_or_drop("valid_state", "state IS NOT NULL")
 @dp.expect_or_drop("valid_county", "county IS NOT NULL")
 @dp.expect_or_drop("valid_event_date", "event_date IS NOT NULL")

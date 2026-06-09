@@ -45,7 +45,7 @@ dp.create_streaming_table(
 # COMMAND ----------
 
 
-@dp.append_flow(target="outages_bronze")
+@dp.append_flow(target="outages_bronze", name="outages_bronze_flow")
 def outages_bronze_flow():
     return (
         spark.readStream.format("cloudFiles")
