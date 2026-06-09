@@ -15,6 +15,7 @@ import mlflow
 import mlflow.sklearn
 import matplotlib.pyplot as plt
 import pandas as pd
+import tempfile
 
 from mlflow.models import infer_signature
 from sklearn.base import clone
@@ -274,7 +275,10 @@ for feature_set_name, candidate_feature_cols in feature_sets.items():
             mlflow.log_metric("best_threshold_precision", best_threshold["precision"])
             mlflow.log_metric("best_threshold_recall", best_threshold["recall"])
 
-            threshold_artifact = f"threshold_metrics_{feature_set_name}_{model_name}.csv"
+            threshold_artifact = (
+                f"{tempfile.gettempdir()}/"
+                f"threshold_metrics_{feature_set_name}_{model_name}.csv"
+            )
             threshold_df.to_csv(threshold_artifact, index=False)
             mlflow.log_artifact(threshold_artifact)
 
@@ -349,7 +353,8 @@ disp = ConfusionMatrixDisplay(
 )
 disp.plot()
 plt.title("Grid Resilience Model Confusion Matrix")
-plt.savefig("confusion_matrix.png", bbox_inches="tight")
+confusion_matrix_path = f"{tempfile.gettempdir()}/confusion_matrix.png"
+plt.savefig(confusion_matrix_path, bbox_inches="tight")
 plt.show()
 
 # COMMAND ----------
@@ -362,7 +367,7 @@ with mlflow.start_run(run_name="outage_best_model_summary"):
     mlflow.log_metric("best_roc_auc", best["roc_auc"])
     mlflow.log_metric("best_average_precision", best["average_precision"])
     mlflow.log_metric("best_threshold_f1", best["best_threshold_f1"])
-    mlflow.log_artifact("confusion_matrix.png")
+    mlflow.log_artifact(confusion_matrix_path)
 
 model_uri = f"runs:/{best['run_id']}/model"
 
