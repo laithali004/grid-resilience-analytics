@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from mlflow.models import infer_signature
+from sklearn.base import clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -141,13 +142,31 @@ print(f"Training rows: {len(features_pdf):,}")
 print("Target distribution:")
 display(features_pdf[target_col].value_counts().rename_axis(target_col).reset_index(name="rows"))
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X,
-    y,
-    test_size=0.2,
-    random_state=261,
-    stratify=y,
-)
+feature_sets = {
+    "outage_only": base_feature_cols,
+    "temporal_history": feature_cols,
+}
+
+unique_dates = sorted(features_pdf["event_date"].drop_duplicates())
+split_date = unique_dates[int(len(unique_dates) * 0.8)]
+train_pdf = features_pdf[features_pdf["event_date"] < split_date]
+test_pdf = features_pdf[features_pdf["event_date"] >= split_date]
+validation_strategy = "time_based_holdout"
+
+if train_pdf[target_col].nunique() < 2 or test_pdf[target_col].nunique() < 2:
+    train_pdf, test_pdf = train_test_split(
+        features_pdf,
+        test_size=0.2,
+        random_state=261,
+        stratify=features_pdf[target_col],
+    )
+    validation_strategy = "stratified_random_fallback"
+    split_date = None
+
+print(f"Validation strategy: {validation_strategy}")
+print(f"Split date: {split_date}")
+print(f"Train rows: {len(train_pdf):,}")
+print(f"Test rows: {len(test_pdf):,}")
 
 candidate_models = {
     "logistic_regression": Pipeline(
@@ -204,60 +223,76 @@ best = {
     "selected_threshold": None,
     "run_id": None,
     "model": None,
+    "feature_set": None,
+    "feature_cols": None,
+    "y_test": None,
 }
+model_results = []
 
 # COMMAND ----------
 
-for model_name, model in candidate_models.items():
-    with mlflow.start_run(run_name=f"outage_{model_name}") as run:
-        model.fit(X_train, y_train)
+for feature_set_name, candidate_feature_cols in feature_sets.items():
+    X_train = train_pdf[candidate_feature_cols]
+    y_train = train_pdf[target_col]
+    X_test = test_pdf[candidate_feature_cols]
+    y_test = test_pdf[target_col]
 
-        y_pred = model.predict(X_test)
-        y_prob = model.predict_proba(X_test)[:, 1]
+    for model_name, model_template in candidate_models.items():
+        model = clone(model_template)
+        run_name = f"outage_{feature_set_name}_{model_name}"
 
-        roc_auc = roc_auc_score(y_test, y_prob)
-        average_precision = average_precision_score(y_test, y_prob)
-        f1 = f1_score(y_test, y_pred, zero_division=0)
-        precision = precision_score(y_test, y_pred, zero_division=0)
-        recall = recall_score(y_test, y_pred, zero_division=0)
-        threshold_df = build_threshold_metrics(y_test.to_numpy(), y_prob, thresholds)
-        best_threshold = threshold_df.sort_values(
-            ["f1", "precision", "recall"],
-            ascending=False,
-        ).iloc[0]
+        with mlflow.start_run(run_name=run_name) as run:
+            model.fit(X_train, y_train)
 
-        mlflow.log_param("model_name", model_name)
-        mlflow.log_param("prediction_target", target_col)
-        mlflow.log_param("feature_cols", ",".join(feature_cols))
-        mlflow.log_param("selected_threshold", best_threshold["threshold"])
-        mlflow.log_metric("roc_auc", roc_auc)
-        mlflow.log_metric("average_precision", average_precision)
-        mlflow.log_metric("f1", f1)
-        mlflow.log_metric("precision", precision)
-        mlflow.log_metric("recall", recall)
-        mlflow.log_metric("best_threshold_f1", best_threshold["f1"])
-        mlflow.log_metric("best_threshold_precision", best_threshold["precision"])
-        mlflow.log_metric("best_threshold_recall", best_threshold["recall"])
+            y_pred = model.predict(X_test)
+            y_prob = model.predict_proba(X_test)[:, 1]
 
-        threshold_artifact = f"threshold_metrics_{model_name}.csv"
-        threshold_df.to_csv(threshold_artifact, index=False)
-        mlflow.log_artifact(threshold_artifact)
+            roc_auc = roc_auc_score(y_test, y_prob)
+            average_precision = average_precision_score(y_test, y_prob)
+            f1 = f1_score(y_test, y_pred, zero_division=0)
+            precision = precision_score(y_test, y_pred, zero_division=0)
+            recall = recall_score(y_test, y_pred, zero_division=0)
+            threshold_df = build_threshold_metrics(y_test.to_numpy(), y_prob, thresholds)
+            best_threshold = threshold_df.sort_values(
+                ["f1", "precision", "recall"],
+                ascending=False,
+            ).iloc[0]
 
-        input_example = X_train.head(5)
-        signature = infer_signature(
-            input_example,
-            model.predict_proba(input_example)[:, 1],
-        )
-        mlflow.sklearn.log_model(
-            model,
-            artifact_path="model",
-            input_example=input_example,
-            signature=signature,
-        )
+            mlflow.log_param("model_name", model_name)
+            mlflow.log_param("feature_set", feature_set_name)
+            mlflow.log_param("validation_strategy", validation_strategy)
+            mlflow.log_param("split_date", str(split_date))
+            mlflow.log_param("prediction_target", target_col)
+            mlflow.log_param("feature_cols", ",".join(candidate_feature_cols))
+            mlflow.log_param("selected_threshold", best_threshold["threshold"])
+            mlflow.log_metric("roc_auc", roc_auc)
+            mlflow.log_metric("average_precision", average_precision)
+            mlflow.log_metric("f1", f1)
+            mlflow.log_metric("precision", precision)
+            mlflow.log_metric("recall", recall)
+            mlflow.log_metric("best_threshold_f1", best_threshold["f1"])
+            mlflow.log_metric("best_threshold_precision", best_threshold["precision"])
+            mlflow.log_metric("best_threshold_recall", best_threshold["recall"])
 
-        print(
-            model_name,
-            {
+            threshold_artifact = f"threshold_metrics_{feature_set_name}_{model_name}.csv"
+            threshold_df.to_csv(threshold_artifact, index=False)
+            mlflow.log_artifact(threshold_artifact)
+
+            input_example = X_train.head(5)
+            signature = infer_signature(
+                input_example,
+                model.predict_proba(input_example)[:, 1],
+            )
+            mlflow.sklearn.log_model(
+                model,
+                artifact_path="model",
+                input_example=input_example,
+                signature=signature,
+            )
+
+            result = {
+                "feature_set": feature_set_name,
+                "model_name": model_name,
                 "roc_auc": roc_auc,
                 "average_precision": average_precision,
                 "f1": f1,
@@ -267,29 +302,37 @@ for model_name, model in candidate_models.items():
                 "best_threshold_f1": best_threshold["f1"],
                 "best_threshold_precision": best_threshold["precision"],
                 "best_threshold_recall": best_threshold["recall"],
-            },
-        )
-        display(threshold_df)
+                "run_id": run.info.run_id,
+            }
+            model_results.append(result)
 
-        if best_threshold["f1"] > best["best_threshold_f1"]:
-            best.update(
-                {
-                    "name": model_name,
-                    "roc_auc": roc_auc,
-                    "average_precision": average_precision,
-                    "best_threshold_f1": best_threshold["f1"],
-                    "selected_threshold": best_threshold["threshold"],
-                    "run_id": run.info.run_id,
-                    "model": model,
-                    "y_pred": y_pred,
-                    "y_prob": y_prob,
-                }
-            )
+            print(run_name, result)
+            display(threshold_df)
+
+            if best_threshold["f1"] > best["best_threshold_f1"]:
+                best.update(
+                    {
+                        "name": model_name,
+                        "roc_auc": roc_auc,
+                        "average_precision": average_precision,
+                        "best_threshold_f1": best_threshold["f1"],
+                        "selected_threshold": best_threshold["threshold"],
+                        "run_id": run.info.run_id,
+                        "model": model,
+                        "feature_set": feature_set_name,
+                        "feature_cols": candidate_feature_cols,
+                        "y_test": y_test,
+                        "y_pred": y_pred,
+                        "y_prob": y_prob,
+                    }
+                )
+
+display(pd.DataFrame(model_results).sort_values("best_threshold_f1", ascending=False))
 
 # COMMAND ----------
 
 report = classification_report(
-    y_test,
+    best["y_test"],
     best["y_pred"],
     target_names=["No Major Outage", "Major Outage"],
     output_dict=True,
@@ -299,7 +342,7 @@ report = classification_report(
 report_df = pd.DataFrame(report).transpose()
 display(report_df)
 
-cm = confusion_matrix(y_test, best["y_pred"])
+cm = confusion_matrix(best["y_test"], best["y_pred"])
 disp = ConfusionMatrixDisplay(
     confusion_matrix=cm,
     display_labels=["No Major Outage", "Major Outage"],
@@ -313,6 +356,7 @@ plt.show()
 
 with mlflow.start_run(run_name="outage_best_model_summary"):
     mlflow.log_param("best_model_name", best["name"])
+    mlflow.log_param("best_feature_set", best["feature_set"])
     mlflow.log_param("best_model_run_id", best["run_id"])
     mlflow.log_param("selected_threshold", best["selected_threshold"])
     mlflow.log_metric("best_roc_auc", best["roc_auc"])
@@ -323,9 +367,16 @@ with mlflow.start_run(run_name="outage_best_model_summary"):
 model_uri = f"runs:/{best['run_id']}/model"
 
 print(f"Best model: {best['name']}")
+print(f"Best feature set: {best['feature_set']}")
 print(f"Best model run ID: {best['run_id']}")
 print(f"Best model URI: {model_uri}")
 print(f"Selected review threshold: {best['selected_threshold']}")
+
+if best["feature_set"] != "outage_only":
+    print(
+        "\nBefore using this model in the scoring pipeline, update "
+        "`gold_outage_risk_scores.py` to create the same temporal feature columns."
+    )
 
 print("\nManual Unity Catalog registration steps:")
 print("1. Open the MLflow run linked above.")
