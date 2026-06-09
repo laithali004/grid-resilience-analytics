@@ -4,6 +4,8 @@
 # MAGIC
 # MAGIC ## Purpose
 # MAGIC Train and evaluate baseline outage risk classifiers using the gold feature table.
+# MAGIC The model uses current county-day outage features to predict whether that same
+# MAGIC county has a major outage on the next observed day.
 # MAGIC This notebook uses scikit-learn because Databricks Free/serverless environments
 # MAGIC may block some Spark ML constructors.
 
@@ -57,17 +59,29 @@ feature_cols = [
     "max_customers_out",
     "total_customers_out",
 ]
-label_col = "major_outage"
+target_col = "next_day_major_outage"
 
 features_pdf = (
     spark.read.table(feature_table)
-    .select(*(feature_cols + [label_col]))
+    .select("event_date", "fips_code", *(feature_cols + ["major_outage"]))
     .dropna()
     .toPandas()
 )
 
+features_pdf["event_date"] = pd.to_datetime(features_pdf["event_date"])
+features_pdf = features_pdf.sort_values(["fips_code", "event_date"])
+features_pdf[target_col] = (
+    features_pdf.groupby("fips_code")["major_outage"].shift(-1)
+)
+features_pdf = features_pdf.dropna(subset=[target_col])
+features_pdf[target_col] = features_pdf[target_col].astype(int)
+
 X = features_pdf[feature_cols]
-y = features_pdf[label_col].astype(int)
+y = features_pdf[target_col]
+
+print(f"Training rows: {len(features_pdf):,}")
+print("Target distribution:")
+display(features_pdf[target_col].value_counts().rename_axis(target_col).reset_index(name="rows"))
 
 X_train, X_test, y_train, y_test = train_test_split(
     X,
@@ -118,6 +132,7 @@ for model_name, model in candidate_models.items():
         recall = recall_score(y_test, y_pred, zero_division=0)
 
         mlflow.log_param("model_name", model_name)
+        mlflow.log_param("prediction_target", target_col)
         mlflow.log_param("feature_cols", ",".join(feature_cols))
         mlflow.log_metric("roc_auc", roc_auc)
         mlflow.log_metric("f1", f1)
