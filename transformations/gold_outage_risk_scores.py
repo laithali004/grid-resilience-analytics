@@ -15,6 +15,7 @@
 # COMMAND ----------
 
 import pandas as pd
+import mlflow
 import mlflow.sklearn
 
 from pyspark.sql import Window
@@ -34,6 +35,9 @@ from pyspark.sql.functions import (
 )
 
 # COMMAND ----------
+
+mlflow.set_tracking_uri("databricks")
+mlflow.set_registry_uri("databricks-uc")
 
 try:
     model_uri = spark.conf.get("outage.model_uri")
@@ -100,6 +104,8 @@ def predict_risk_probability(
     global _risk_model
 
     if _risk_model is None:
+        mlflow.set_tracking_uri("databricks")
+        mlflow.set_registry_uri("databricks-uc")
         _risk_model = mlflow.sklearn.load_model(model_uri)
 
     batch = pd.DataFrame(
