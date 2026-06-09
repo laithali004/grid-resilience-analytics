@@ -4,23 +4,35 @@
 # MAGIC
 # MAGIC ## Purpose
 # MAGIC Train and evaluate baseline outage risk classifiers using the gold feature table.
-# MAGIC Log metrics and artifacts to MLflow, then register the best model for pipeline scoring.
+# MAGIC This notebook uses scikit-learn because Databricks Free/serverless environments
+# MAGIC may block some Spark ML constructors.
 
 # COMMAND ----------
 
 import mlflow
+import mlflow.sklearn
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from pyspark.ml import Pipeline
-from pyspark.ml.classification import LogisticRegression, RandomForestClassifier
-from pyspark.ml.evaluation import BinaryClassificationEvaluator, MulticlassClassificationEvaluator
-from pyspark.ml.feature import VectorAssembler
-from sklearn.metrics import ConfusionMatrixDisplay, classification_report, confusion_matrix
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    ConfusionMatrixDisplay,
+    classification_report,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 # COMMAND ----------
 
 mlflow.set_registry_uri("databricks-uc")
+
 
 def get_spark_conf(name: str, default: str) -> str:
     try:
@@ -38,54 +50,89 @@ registered_model_name = get_spark_conf(
     "workspace.default.outage_risk_model",
 )
 
-df = spark.read.format("delta").table(feature_table).dropna(
-    subset=[
-        "outage_observations",
-        "avg_customers_out",
-        "max_customers_out",
-        "total_customers_out",
-        "major_outage",
-    ]
-)
-
 feature_cols = [
     "outage_observations",
     "avg_customers_out",
     "max_customers_out",
     "total_customers_out",
 ]
+label_col = "major_outage"
 
-train_df, test_df = df.randomSplit([0.8, 0.2], seed=261)
+features_pdf = (
+    spark.read.table(feature_table)
+    .select(*(feature_cols + [label_col]))
+    .dropna()
+    .toPandas()
+)
 
-assembler = VectorAssembler(inputCols=feature_cols, outputCol="features")
+X = features_pdf[feature_cols]
+y = features_pdf[label_col].astype(int)
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X,
+    y,
+    test_size=0.2,
+    random_state=261,
+    stratify=y,
+)
+
 candidate_models = {
-    "logistic_regression": LogisticRegression(featuresCol="features", labelCol="major_outage"),
-    "random_forest": RandomForestClassifier(featuresCol="features", labelCol="major_outage", seed=261),
+    "logistic_regression": Pipeline(
+        steps=[
+            ("scaler", StandardScaler()),
+            (
+                "model",
+                LogisticRegression(
+                    max_iter=1000,
+                    class_weight="balanced",
+                    random_state=261,
+                ),
+            ),
+        ]
+    ),
+    "random_forest": RandomForestClassifier(
+        n_estimators=150,
+        max_depth=10,
+        min_samples_leaf=5,
+        class_weight="balanced",
+        random_state=261,
+        n_jobs=1,
+    ),
 }
-
-binary_eval = BinaryClassificationEvaluator(labelCol="major_outage", metricName="areaUnderROC")
-f1_eval = MulticlassClassificationEvaluator(labelCol="major_outage", metricName="f1")
 
 best = {"name": None, "roc_auc": -1, "run_id": None, "model": None}
 
 # COMMAND ----------
 
-for model_name, estimator in candidate_models.items():
+for model_name, model in candidate_models.items():
     with mlflow.start_run(run_name=f"outage_{model_name}") as run:
-        pipeline = Pipeline(stages=[assembler, estimator])
-        fitted_model = pipeline.fit(train_df)
-        predictions = fitted_model.transform(test_df)
+        model.fit(X_train, y_train)
 
-        roc_auc = binary_eval.evaluate(predictions)
-        f1 = f1_eval.evaluate(predictions)
+        y_pred = model.predict(X_test)
+        y_prob = model.predict_proba(X_test)[:, 1]
+
+        roc_auc = roc_auc_score(y_test, y_prob)
+        f1 = f1_score(y_test, y_pred, zero_division=0)
+        precision = precision_score(y_test, y_pred, zero_division=0)
+        recall = recall_score(y_test, y_pred, zero_division=0)
 
         mlflow.log_param("model_name", model_name)
         mlflow.log_param("feature_cols", ",".join(feature_cols))
         mlflow.log_metric("roc_auc", roc_auc)
         mlflow.log_metric("f1", f1)
-        mlflow.spark.log_model(fitted_model, artifact_path="model")
+        mlflow.log_metric("precision", precision)
+        mlflow.log_metric("recall", recall)
+        mlflow.sklearn.log_model(model, artifact_path="model")
 
-        print(model_name, {"roc_auc": roc_auc, "f1": f1})
+        print(
+            model_name,
+            {
+                "roc_auc": roc_auc,
+                "f1": f1,
+                "precision": precision,
+                "recall": recall,
+            },
+        )
 
         if roc_auc > best["roc_auc"]:
             best.update(
@@ -93,20 +140,17 @@ for model_name, estimator in candidate_models.items():
                     "name": model_name,
                     "roc_auc": roc_auc,
                     "run_id": run.info.run_id,
-                    "model": fitted_model,
-                    "predictions": predictions,
+                    "model": model,
+                    "y_pred": y_pred,
+                    "y_prob": y_prob,
                 }
             )
 
 # COMMAND ----------
 
-best_predictions = best["predictions"].select("major_outage", "prediction").toPandas()
-y_true = best_predictions["major_outage"].astype(int)
-y_pred = best_predictions["prediction"].astype(int)
-
 report = classification_report(
-    y_true,
-    y_pred,
+    y_test,
+    best["y_pred"],
     target_names=["No Major Outage", "Major Outage"],
     output_dict=True,
     zero_division=0,
@@ -115,7 +159,7 @@ report = classification_report(
 report_df = pd.DataFrame(report).transpose()
 display(report_df)
 
-cm = confusion_matrix(y_true, y_pred)
+cm = confusion_matrix(y_test, best["y_pred"])
 disp = ConfusionMatrixDisplay(
     confusion_matrix=cm,
     display_labels=["No Major Outage", "Major Outage"],
