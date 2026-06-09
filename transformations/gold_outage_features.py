@@ -27,14 +27,14 @@ dp.create_streaming_table(
 
 
 @dp.append_flow(target="outage_county_day_features", name="outage_county_day_features_flow")
-@dp.expect_or_drop("valid_feature_state", "state IS NOT NULL")
-@dp.expect_or_drop("valid_feature_county", "county IS NOT NULL")
-@dp.expect_or_drop("valid_feature_fips", "fips_code IS NOT NULL")
 def outage_county_day_features_flow():
     df = spark.readStream.table("outages_silver")
 
     return (
-        df.groupBy("event_date", "fips_code", "state", "county")
+        df.filter(col("state").isNotNull())
+        .filter(col("county").isNotNull())
+        .filter(col("fips_code").isNotNull())
+        .groupBy("event_date", "fips_code", "state", "county")
         .agg(
             count("*").alias("outage_observations"),
             avg("customers_out").alias("avg_customers_out"),

@@ -25,10 +25,6 @@ dp.create_streaming_table(
 
 
 @dp.append_flow(target="outages_silver", name="outages_silver_flow")
-@dp.expect_or_drop("valid_state", "state IS NOT NULL")
-@dp.expect_or_drop("valid_county", "county IS NOT NULL")
-@dp.expect_or_drop("valid_event_date", "event_date IS NOT NULL")
-@dp.expect("non_negative_customers_out", "customers_out >= 0 OR customers_out IS NULL")
 def outages_silver_flow():
     df = spark.readStream.table("outages_bronze")
 
@@ -72,6 +68,10 @@ def outages_silver_flow():
         .withColumn("latitude", raw_latitude.cast("double"))
         .withColumn("longitude", raw_longitude.cast("double"))
         .withColumn("utility", raw_utility.cast("string"))
+        .filter(col("state").isNotNull())
+        .filter(col("county").isNotNull())
+        .filter(col("event_date").isNotNull())
+        .filter((col("customers_out") >= 0) | col("customers_out").isNull())
         .select(
             "event_timestamp",
             "event_date",
