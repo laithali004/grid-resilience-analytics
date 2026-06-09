@@ -14,6 +14,7 @@ import mlflow.sklearn
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from mlflow.models import infer_signature
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -122,7 +123,18 @@ for model_name, model in candidate_models.items():
         mlflow.log_metric("f1", f1)
         mlflow.log_metric("precision", precision)
         mlflow.log_metric("recall", recall)
-        mlflow.sklearn.log_model(model, artifact_path="model")
+
+        input_example = X_train.head(5)
+        signature = infer_signature(
+            input_example,
+            model.predict_proba(input_example)[:, 1],
+        )
+        mlflow.sklearn.log_model(
+            model,
+            artifact_path="model",
+            input_example=input_example,
+            signature=signature,
+        )
 
         print(
             model_name,
