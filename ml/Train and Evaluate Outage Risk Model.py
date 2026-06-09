@@ -190,8 +190,15 @@ with mlflow.start_run(run_name="outage_best_model_summary"):
     mlflow.log_artifact("confusion_matrix.png")
 
 model_uri = f"runs:/{best['run_id']}/model"
-registered_model = mlflow.register_model(model_uri, registered_model_name)
 
 print(f"Best model: {best['name']}")
-print(f"Registered model: {registered_model.name}, version {registered_model.version}")
-print(f"Set pipeline config outage.model_uri = models:/{registered_model.name}/{registered_model.version}")
+print(f"Best model run ID: {best['run_id']}")
+print(f"Best model URI: {model_uri}")
+
+print("\nManual Unity Catalog registration steps:")
+print("1. Open the MLflow run linked above.")
+print("2. In Artifacts, open the `model` folder.")
+print("3. Click Register model.")
+print(f"4. Register it as: {registered_model_name}")
+print("5. After registration, copy the model version number.")
+print(f"6. Set pipeline config outage.model_uri = models:/{registered_model_name}/<version>")
