@@ -4,8 +4,8 @@
 # MAGIC
 # MAGIC ## Purpose
 # MAGIC Train and evaluate baseline outage risk classifiers using the gold feature table.
-# MAGIC The model uses current county-day outage features to predict whether that same
-# MAGIC county has a major outage on the next observed day.
+# MAGIC The model uses current and recent county-day outage features to predict whether
+# MAGIC that same county has a major outage on the next observed day.
 # MAGIC This notebook uses scikit-learn because Databricks Free/serverless environments
 # MAGIC may block some Spark ML constructors.
 
@@ -54,7 +54,7 @@ registered_model_name = get_spark_conf(
     "workspace.default.outage_risk_model",
 )
 
-feature_cols = [
+base_feature_cols = [
     "outage_observations",
     "avg_customers_out",
     "max_customers_out",
@@ -65,18 +65,74 @@ thresholds = [0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 0.95]
 
 features_pdf = (
     spark.read.table(feature_table)
-    .select("event_date", "fips_code", *(feature_cols + ["major_outage"]))
+    .select("event_date", "fips_code", *(base_feature_cols + ["major_outage"]))
     .dropna()
     .toPandas()
 )
 
+
+def add_temporal_features(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["event_date"] = pd.to_datetime(df["event_date"])
+    df = df.sort_values(["fips_code", "event_date"])
+    county_group = df.groupby("fips_code", group_keys=False)
+
+    df["event_month"] = df["event_date"].dt.month
+    df["event_day_of_week"] = df["event_date"].dt.dayofweek
+    df["previous_major_outage"] = county_group["major_outage"].shift(1)
+    df["previous_max_customers_out"] = county_group["max_customers_out"].shift(1)
+    df["previous_avg_customers_out"] = county_group["avg_customers_out"].shift(1)
+    df["previous_total_customers_out"] = county_group["total_customers_out"].shift(1)
+    df["previous_outage_observations"] = county_group["outage_observations"].shift(1)
+
+    df["rolling_3_day_max_customers_out"] = county_group["max_customers_out"].transform(
+        lambda values: values.shift(1).rolling(3, min_periods=1).max()
+    )
+    df["rolling_3_day_avg_customers_out"] = county_group["avg_customers_out"].transform(
+        lambda values: values.shift(1).rolling(3, min_periods=1).mean()
+    )
+    df["rolling_3_day_major_outages"] = county_group["major_outage"].transform(
+        lambda values: values.shift(1).rolling(3, min_periods=1).sum()
+    )
+    df["rolling_7_day_max_customers_out"] = county_group["max_customers_out"].transform(
+        lambda values: values.shift(1).rolling(7, min_periods=1).max()
+    )
+    df["rolling_7_day_avg_customers_out"] = county_group["avg_customers_out"].transform(
+        lambda values: values.shift(1).rolling(7, min_periods=1).mean()
+    )
+    df["rolling_7_day_major_outages"] = county_group["major_outage"].transform(
+        lambda values: values.shift(1).rolling(7, min_periods=1).sum()
+    )
+    df["days_since_previous_observation"] = county_group["event_date"].diff().dt.days
+    df[target_col] = county_group["major_outage"].shift(-1)
+
+    return df
+
+
+features_pdf = add_temporal_features(features_pdf)
+
+temporal_feature_cols = [
+    "event_month",
+    "event_day_of_week",
+    "previous_major_outage",
+    "previous_max_customers_out",
+    "previous_avg_customers_out",
+    "previous_total_customers_out",
+    "previous_outage_observations",
+    "rolling_3_day_max_customers_out",
+    "rolling_3_day_avg_customers_out",
+    "rolling_3_day_major_outages",
+    "rolling_7_day_max_customers_out",
+    "rolling_7_day_avg_customers_out",
+    "rolling_7_day_major_outages",
+    "days_since_previous_observation",
+]
+feature_cols = base_feature_cols + temporal_feature_cols
+
 features_pdf["event_date"] = pd.to_datetime(features_pdf["event_date"])
-features_pdf = features_pdf.sort_values(["fips_code", "event_date"])
-features_pdf[target_col] = (
-    features_pdf.groupby("fips_code")["major_outage"].shift(-1)
-)
 features_pdf = features_pdf.dropna(subset=[target_col])
 features_pdf[target_col] = features_pdf[target_col].astype(int)
+features_pdf[temporal_feature_cols] = features_pdf[temporal_feature_cols].fillna(0)
 
 X = features_pdf[feature_cols]
 y = features_pdf[target_col]
