@@ -82,13 +82,37 @@ _risk_model = None
 
 def patch_sklearn_tree_compatibility(model):
     """Handle minor scikit-learn tree attribute differences across Databricks runtimes."""
-    estimators = getattr(model, "estimators_", [])
+    tree_model = model
+
+    if hasattr(model, "named_steps") and "model" in model.named_steps:
+        tree_model = model.named_steps["model"]
+
+    estimators = getattr(tree_model, "estimators_", [])
 
     for estimator in estimators:
         if not hasattr(estimator, "monotonic_cst"):
             estimator.monotonic_cst = None
 
     return model
+
+
+def positive_class_probability(model, batch: pd.DataFrame) -> pd.Series:
+    if not hasattr(model, "predict_proba"):
+        raise AttributeError("Registered outage risk model must support predict_proba.")
+
+    probabilities = model.predict_proba(batch)
+
+    if getattr(probabilities, "ndim", 1) != 2 or probabilities.shape[1] < 2:
+        raise ValueError("Registered outage risk model did not return binary probabilities.")
+
+    classes = list(getattr(model, "classes_", [0, 1]))
+    positive_class_index = classes.index(1) if 1 in classes else probabilities.shape[1] - 1
+    risk_probability = pd.Series(probabilities[:, positive_class_index].astype(float))
+
+    if ((risk_probability < 0) | (risk_probability > 1)).any():
+        raise ValueError("Registered outage risk model returned values outside [0, 1].")
+
+    return risk_probability
 
 
 @pandas_udf("double")
@@ -144,10 +168,7 @@ def predict_risk_probability(
         }
     )
 
-    if hasattr(_risk_model, "predict_proba"):
-        return pd.Series(_risk_model.predict_proba(batch)[:, 1])
-
-    return pd.Series(_risk_model.predict(batch).astype(float))
+    return positive_class_probability(_risk_model, batch)
 
 
 def add_temporal_scoring_features(features):

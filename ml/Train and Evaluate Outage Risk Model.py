@@ -183,13 +183,20 @@ candidate_models = {
             ),
         ]
     ),
-    "random_forest": RandomForestClassifier(
-        n_estimators=150,
-        max_depth=10,
-        min_samples_leaf=5,
-        class_weight="balanced",
-        random_state=261,
-        n_jobs=1,
+    "random_forest": Pipeline(
+        steps=[
+            (
+                "model",
+                RandomForestClassifier(
+                    n_estimators=150,
+                    max_depth=10,
+                    min_samples_leaf=5,
+                    class_weight="balanced",
+                    random_state=261,
+                    n_jobs=1,
+                ),
+            ),
+        ]
     ),
 }
 
