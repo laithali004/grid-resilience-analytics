@@ -80,6 +80,17 @@ temporal_feature_cols = feature_cols[4:]
 _risk_model = None
 
 
+def patch_sklearn_tree_compatibility(model):
+    """Handle minor scikit-learn tree attribute differences across Databricks runtimes."""
+    estimators = getattr(model, "estimators_", [])
+
+    for estimator in estimators:
+        if not hasattr(estimator, "monotonic_cst"):
+            estimator.monotonic_cst = None
+
+    return model
+
+
 @pandas_udf("double")
 def predict_risk_probability(
     outage_observations: pd.Series,
@@ -106,7 +117,9 @@ def predict_risk_probability(
     if _risk_model is None:
         mlflow.set_tracking_uri("databricks")
         mlflow.set_registry_uri("databricks-uc")
-        _risk_model = mlflow.sklearn.load_model(model_uri)
+        _risk_model = patch_sklearn_tree_compatibility(
+            mlflow.sklearn.load_model(model_uri)
+        )
 
     batch = pd.DataFrame(
         {
