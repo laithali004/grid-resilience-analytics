@@ -82,7 +82,7 @@ Dashboard + MLflow Tracking
 **Purpose**: Ingest raw outage CSV files using CloudFiles Auto Loader.
 
 **Input**: Raw outage CSV files uploaded to a Databricks Volume or DBFS path  
-**Output**: Delta streaming table `outages_bronze`
+**Output**: Delta streaming table `bronze_outages`
 
 **Functionality**:
 
@@ -102,8 +102,8 @@ Dashboard + MLflow Tracking
 
 **Purpose**: Convert raw outage records into a clean, consistent analytical table.
 
-**Input**: `outages_bronze`  
-**Output**: Delta streaming table `outages_silver`
+**Input**: `bronze_outages`  
+**Output**: Delta streaming table `silver_outages`
 
 **Functionality**:
 
@@ -121,8 +121,8 @@ Dashboard + MLflow Tracking
 
 **Purpose**: Aggregate cleaned outage records into county-day features for analytics and modeling.
 
-**Input**: `outages_silver`  
-**Output**: Delta streaming table `outage_county_day_features`
+**Input**: `silver_outages`  
+**Output**: Delta streaming table `gold_county_day_features`
 
 **Functionality**:
 
@@ -143,8 +143,8 @@ Dashboard + MLflow Tracking
 
 **Purpose**: Apply a registered MLflow model to estimate outage risk.
 
-**Input**: `outage_county_day_features`  
-**Output**: Delta streaming table `outage_county_risk_scores`
+**Input**: `gold_county_day_features`  
+**Output**: Delta streaming table `gold_county_risk_scores`
 
 **Functionality**:
 

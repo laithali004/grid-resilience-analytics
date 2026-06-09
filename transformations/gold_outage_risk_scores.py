@@ -7,7 +7,7 @@
 # MAGIC dashboard-ready outage risk scores.
 # MAGIC
 # MAGIC ## Expected Output
-# MAGIC Delta streaming table: `outage_county_risk_scores`
+# MAGIC Delta streaming table: `gold_county_risk_scores`
 # MAGIC
 # MAGIC Run `explorations/Outage Model Performance Analysis.py` first to train and
 # MAGIC register a model, then set the `outage.model_uri` pipeline configuration.
@@ -27,16 +27,16 @@ model_uri = spark.conf.get(
 )
 
 dp.create_streaming_table(
-    name="outage_county_risk_scores",
+    name="gold_county_risk_scores",
     comment="Gold table with model-scored county-day outage risk probabilities",
 )
 
 # COMMAND ----------
 
 
-@dp.append_flow(target="outage_county_risk_scores", name="outage_county_risk_scores_flow")
-def outage_county_risk_scores_flow():
-    features = spark.readStream.table("outage_county_day_features")
+@dp.append_flow(target="gold_county_risk_scores", name="gold_county_risk_scores_flow")
+def gold_county_risk_scores_flow():
+    features = spark.readStream.table("gold_county_day_features")
 
     try:
         model = mlflow.spark.load_model(model_uri)

@@ -7,7 +7,7 @@
 # MAGIC and binary outage risk modeling.
 # MAGIC
 # MAGIC ## Expected Output
-# MAGIC Delta streaming table: `outage_county_day_features`
+# MAGIC Delta streaming table: `gold_county_day_features`
 
 # COMMAND ----------
 
@@ -19,16 +19,16 @@ from pyspark.sql.functions import avg, col, count, max, sum
 major_outage_threshold = int(spark.conf.get("outage.major_outage_threshold", "5000"))
 
 dp.create_streaming_table(
-    name="outage_county_day_features",
+    name="gold_county_day_features",
     comment="Gold table with county-day outage risk features and binary major outage label",
 )
 
 # COMMAND ----------
 
 
-@dp.append_flow(target="outage_county_day_features", name="outage_county_day_features_flow")
-def outage_county_day_features_flow():
-    df = spark.readStream.table("outages_silver")
+@dp.append_flow(target="gold_county_day_features", name="gold_county_day_features_flow")
+def gold_county_day_features_flow():
+    df = spark.readStream.table("silver_outages")
 
     return (
         df.filter(col("state").isNotNull())

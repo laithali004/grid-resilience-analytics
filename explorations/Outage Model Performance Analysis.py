@@ -22,7 +22,7 @@ from sklearn.metrics import ConfusionMatrixDisplay, classification_report, confu
 
 mlflow.set_registry_uri("databricks-uc")
 
-feature_table = spark.conf.get("outage.feature_table", "outage_county_day_features")
+feature_table = spark.conf.get("outage.feature_table", "gold_county_day_features")
 registered_model_name = spark.conf.get(
     "outage.registered_model_name",
     "workspace.default.outage_risk_model",

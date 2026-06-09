@@ -7,7 +7,7 @@
 # MAGIC parse timestamps, and apply basic data quality expectations.
 # MAGIC
 # MAGIC ## Expected Output
-# MAGIC Delta streaming table: `outages_silver`
+# MAGIC Delta streaming table: `silver_outages`
 
 # COMMAND ----------
 
@@ -17,16 +17,16 @@ from pyspark.sql.functions import coalesce, col, initcap, lit, regexp_replace, t
 # COMMAND ----------
 
 dp.create_streaming_table(
-    name="outages_silver",
+    name="silver_outages",
     comment="Silver streaming table with standardized outage records",
 )
 
 # COMMAND ----------
 
 
-@dp.append_flow(target="outages_silver", name="outages_silver_flow")
-def outages_silver_flow():
-    df = spark.readStream.table("outages_bronze")
+@dp.append_flow(target="silver_outages", name="silver_outages_flow")
+def silver_outages_flow():
+    df = spark.readStream.table("bronze_outages")
 
     def first_existing(names):
         for name in names:

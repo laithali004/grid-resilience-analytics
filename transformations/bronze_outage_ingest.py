@@ -7,7 +7,7 @@
 # MAGIC Preserve source fields and add metadata columns for lineage.
 # MAGIC
 # MAGIC ## Expected Output
-# MAGIC Delta streaming table: `outages_bronze`
+# MAGIC Delta streaming table: `bronze_outages`
 
 # COMMAND ----------
 
@@ -38,15 +38,15 @@ eaglei_schema = StructType(
 )
 
 dp.create_streaming_table(
-    name="outages_bronze",
+    name="bronze_outages",
     comment="Bronze streaming table containing raw outage records and ingestion metadata",
 )
 
 # COMMAND ----------
 
 
-@dp.append_flow(target="outages_bronze", name="outages_bronze_flow")
-def outages_bronze_flow():
+@dp.append_flow(target="bronze_outages", name="bronze_outages_flow")
+def bronze_outages_flow():
     return (
         spark.readStream.format("cloudFiles")
         .option("cloudFiles.format", "csv")
